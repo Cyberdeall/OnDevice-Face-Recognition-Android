@@ -37,10 +37,7 @@ class FaceDetectionOverlay(
     private val context: Context,
     private val viewModel: DetectScreenViewModel,
 ) : FrameLayout(context) {
-    // Setting `flatSearch` to `true` enables precise calculation
-    // of cosine similarity.
-    // This is slower than ObjectBox's vector search, which approximates
-    // nearest neighbor search
+
     private val flatSearch: Boolean = false
     private var overlayWidth: Int = 0
     private var overlayHeight: Int = 0
@@ -200,3 +197,44 @@ class FaceDetectionOverlay(
             }
             image.close()
         }
+
+    data class Prediction(
+        var bbox: RectF,
+        var label: String,
+    )
+
+    inner class BoundingBoxOverlay(
+        context: Context,
+    ) : SurfaceView(context),
+        SurfaceHolder.Callback {
+        private val boxPaint =
+            Paint().apply {
+                color = Color.parseColor("#4D90caf9")
+                style = Paint.Style.FILL
+            }
+        private val textPaint =
+            Paint().apply {
+                strokeWidth = 2.0f
+                textSize = 36f
+                color = Color.WHITE
+            }
+
+        override fun surfaceCreated(holder: SurfaceHolder) {}
+
+        override fun surfaceChanged(
+            holder: SurfaceHolder,
+            format: Int,
+            width: Int,
+            height: Int,
+        ) {}
+
+        override fun surfaceDestroyed(holder: SurfaceHolder) {}
+
+        override fun onDraw(canvas: Canvas) {
+            predictions.forEach {
+                canvas.drawRoundRect(it.bbox, 16f, 16f, boxPaint)
+                canvas.drawText(it.label, it.bbox.centerX(), it.bbox.centerY(), textPaint)
+            }
+        }
+    }
+}
