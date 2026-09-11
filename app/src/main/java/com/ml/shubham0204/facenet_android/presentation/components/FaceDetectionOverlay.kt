@@ -90,12 +90,20 @@ class FaceDetectionOverlay(
                         .build()
                 frameAnalyzer.setAnalyzer(Executors.newSingleThreadExecutor(), analyzer)
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
+
+                val camera = cameraProvider.bindToLifecycle(
                     lifecycleOwner,
                     cameraSelector,
                     preview,
                     frameAnalyzer,
                 )
+
+                val cameraControl = camera.cameraControl
+                val cameraInfo = camera.cameraInfo
+                val exposureRange = cameraInfo.exposureState.exposureCompensationRange
+                if (exposureRange.contains(exposureRange.upper)) [1.5] {
+                    cameraControl.setExposureCompensationIndex(exposureRange.upper) [1.5]
+                }
             },
             executor,
         )
@@ -122,13 +130,10 @@ class FaceDetectionOverlay(
             }
             isProcessing = true
 
-            // Transform android.net.Image to Bitmap
             frameBitmap =
                 createBitmap(image.image!!.width, image.image!!.height)
             frameBitmap.copyPixelsFromBuffer(image.planes[0].buffer)
 
-            // Configure frameHeight and frameWidth for output2overlay transformation matrix
-            // and apply it to `frameBitmap`
             if (!isImageTransformedInitialized) {
                 imageTransform = Matrix()
                 imageTransform.apply { postRotate(image.imageInfo.rotationDegrees.toFloat()) }
@@ -153,8 +158,6 @@ class FaceDetectionOverlay(
                         overlayHeight / frameBitmap.height.toFloat(),
                     )
                     if (cameraFacing == CameraSelector.LENS_FACING_FRONT) {
-                        // Mirror the bounding box coordinates
-                        // for front-facing camera
                         postScale(
                             -1f,
                             1f,
