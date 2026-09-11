@@ -91,18 +91,24 @@ class FaceDetectionOverlay(
                 frameAnalyzer.setAnalyzer(Executors.newSingleThreadExecutor(), analyzer)
                 cameraProvider.unbindAll()
 
-                val camera = cameraProvider.bindToLifecycle(
-                    lifecycleOwner,
-                    cameraSelector,
-                    preview,
-                    frameAnalyzer,
-                )
+                // Membuka kamera dan menampungnya ke dalam variabel agar eksposur bisa diatur
+                try {
+                    val camera = cameraProvider.bindToLifecycle(
+                        lifecycleOwner,
+                        cameraSelector,
+                        preview,
+                        frameAnalyzer,
+                    )
 
-                val cameraControl = camera.cameraControl
-                val cameraInfo = camera.cameraInfo
-                val exposureRange = cameraInfo.exposureState.exposureCompensationRange
-                if (exposureRange.contains(exposureRange.upper)) [1.5] {
-                    cameraControl.setExposureCompensationIndex(exposureRange.upper) [1.5]
+                    // Mengatur eksposur kamera depan Samsung ke tingkat paling terang
+                    val cameraControl = camera.cameraControl
+                    val cameraInfo = camera.cameraInfo
+                    val exposureRange = cameraInfo.exposureState.exposureCompensationRange
+                    if (exposureRange.contains(exposureRange.upper)) {
+                        cameraControl.setExposureCompensationIndex(exposureRange.upper)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
             },
             executor,
@@ -121,119 +127,3 @@ class FaceDetectionOverlay(
         this.boundingBoxOverlay.setZOrderOnTop(true)
         addView(this.boundingBoxOverlay, boundingBoxOverlayParams)
     }
-
-    private val analyzer =
-        ImageAnalysis.Analyzer { image ->
-            if (isProcessing) {
-                image.close()
-                return@Analyzer
-            }
-            isProcessing = true
-
-            frameBitmap =
-                createBitmap(image.image!!.width, image.image!!.height)
-            frameBitmap.copyPixelsFromBuffer(image.planes[0].buffer)
-
-            if (!isImageTransformedInitialized) {
-                imageTransform = Matrix()
-                imageTransform.apply { postRotate(image.imageInfo.rotationDegrees.toFloat()) }
-                isImageTransformedInitialized = true
-            }
-            frameBitmap =
-                Bitmap.createBitmap(
-                    frameBitmap,
-                    0,
-                    0,
-                    frameBitmap.width,
-                    frameBitmap.height,
-                    imageTransform,
-                    false,
-                )
-
-            if (!isBoundingBoxTransformedInitialized) {
-                boundingBoxTransform = Matrix()
-                boundingBoxTransform.apply {
-                    setScale(
-                        overlayWidth / frameBitmap.width.toFloat(),
-                        overlayHeight / frameBitmap.height.toFloat(),
-                    )
-                    if (cameraFacing == CameraSelector.LENS_FACING_FRONT) {
-                        postScale(
-                            -1f,
-                            1f,
-                            overlayWidth.toFloat() / 2.0f,
-                            overlayHeight.toFloat() / 2.0f,
-                        )
-                    }
-                }
-                isBoundingBoxTransformedInitialized = true
-            }
-            CoroutineScope(Dispatchers.Default).launch {
-                val predictions = ArrayList<Prediction>()
-                val (metrics, results) =
-                    viewModel.imageVectorUseCase.getNearestPersonName(
-                        frameBitmap,
-                        flatSearch,
-                    )
-                results.forEach { (name, boundingBox, spoofResult) ->
-                    val box = boundingBox.toRectF()
-                    var personName = name
-                    if (viewModel.getNumPeople().toInt() == 0) {
-                        personName = ""
-                    }
-                    if (spoofResult != null && spoofResult.isSpoof) {
-                        personName = "$personName (Spoof: ${spoofResult.score})"
-                    }
-                    boundingBoxTransform.mapRect(box)
-                    predictions.add(Prediction(box, personName))
-                }
-                withContext(Dispatchers.Main) {
-                    viewModel.faceDetectionMetricsState.value = metrics
-                    this@FaceDetectionOverlay.predictions = predictions.toTypedArray()
-                    boundingBoxOverlay.invalidate()
-                    isProcessing = false
-                }
-            }
-            image.close()
-        }
-
-    data class Prediction(
-        var bbox: RectF,
-        var label: String,
-    )
-
-    inner class BoundingBoxOverlay(
-        context: Context,
-    ) : SurfaceView(context),
-        SurfaceHolder.Callback {
-        private val boxPaint =
-            Paint().apply {
-                color = Color.parseColor("#4D90caf9")
-                style = Paint.Style.FILL
-            }
-        private val textPaint =
-            Paint().apply {
-                strokeWidth = 2.0f
-                textSize = 36f
-                color = Color.WHITE
-            }
-
-        override fun surfaceCreated(holder: SurfaceHolder) {}
-
-        override fun surfaceChanged(
-            holder: SurfaceHolder,
-            format: Int,
-            width: Int,
-            height: Int,
-        ) {}
-
-        override fun surfaceDestroyed(holder: SurfaceHolder) {}
-
-        override fun onDraw(canvas: Canvas) {
-            predictions.forEach {
-                canvas.drawRoundRect(it.bbox, 16f, 16f, boxPaint)
-                canvas.drawText(it.label, it.bbox.centerX(), it.bbox.centerY(), textPaint)
-            }
-        }
-    }
-}
